@@ -187,6 +187,24 @@ class Config {
     }
     async initDbs(){
         try {
+            await query(`SELECT * FROM \`contact\``);
+        }catch (e) {
+            if (e.code === 'ER_NO_SUCH_TABLE'){
+                await query('CREATE TABLE IF NOT EXISTS `contact` (\n' +
+                    '  `id` int(11) NOT NULL,\n' +
+                    '  `name` varchar(500) NOT NULL,\n' +
+                    '  `link` varchar(1000) NOT NULL,\n' +
+                    '  `type` int(11) NOT NULL,\n' +
+                    '  `ctime` int(11) NOT NULL,\n' +
+                    '  `status` int(11) NOT NULL\n' +
+                    ') ENGINE=InnoDB DEFAULT CHARSET=utf8;');
+                await query('ALTER TABLE `contact`\n' +
+                    '  ADD PRIMARY KEY (`id`);');
+                await query('ALTER TABLE `contact`\n' +
+                    '  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;');
+            }
+        }
+        try {
             await query(`SELECT * FROM \`banks\``);
         }catch (e) {
             // return console.log(e.code)
@@ -269,8 +287,9 @@ class Config {
                     ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;');
 
                 await query('INSERT INTO `system` (`name`, `key`, `value`, `utime`, `status`, `id`) VALUES\n' +
-                    '(\'机器人密钥\', \'robot\', \'1974490745:AAEplF5PT8VxA7-NKLUNHJvMwDDF9M07cwI\', 1631382305, 1, 3),\n' +
-                    '(\'USDT汇率人民币\', \'usdt2rmb\', \'6.50\', 1631382171, 1, 4),\n' +
+                    '(\'手续费\', \'fee\', \'0.93\', 1631382171, 1, 2),\n' +
+                    '(\'机器人密钥\', \'robot\', \'1892684725:AAHQ8qHoXccmqdd1keRfr3128V4kUwPJ1uA\', 1631382305, 1, 3),\n' +
+                    '(\'USDT汇率人民币\', \'usdt2rmb\', \'6.51\', 1632297817, 1, 4),\n' +
                     '(\'管理员TG\', \'tgname\', \'ersonw\', 1631384313, 1, 5);');
                 await query('ALTER TABLE `system`\n' +
                     '  ADD PRIMARY KEY (`id`);');
@@ -307,7 +326,7 @@ class Config {
         }catch (e) {
             // console.log(e.code)
             if (e.code === 'ER_NO_SUCH_TABLE'){
-                await query('CREATE TABLE `user` (\n' +
+                await query('CREATE TABLE IF NOT EXISTS `user` (\n' +
                     '  `id` varchar(500) COLLATE utf8mb4_bin NOT NULL,\n' +
                     '  `first_name` varchar(500) COLLATE utf8mb4_bin NOT NULL,\n' +
                     '  `last_name` varchar(500) COLLATE utf8mb4_bin NOT NULL,\n' +
@@ -315,10 +334,12 @@ class Config {
                     '  `sid` varchar(500) COLLATE utf8mb4_bin DEFAULT NULL,\n' +
                     '  `amount` bigint(255) NOT NULL DEFAULT \'0\',\n' +
                     '  `usdt_addr` varchar(500) COLLATE utf8mb4_bin DEFAULT NULL,\n' +
+                    '  `usdt2rmb` float DEFAULT NULL,\n' +
+                    '  `fee` float DEFAULT NULL,\n' +
                     '  `ctime` int(11) NOT NULL,\n' +
                     '  `status` int(11) NOT NULL,\n' +
                     '  `uid` int(11) NOT NULL\n' +
-                    ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;');
+                    ') ENGINE=InnoDB AUTO_INCREMENT=15 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;');
                 await query('ALTER TABLE `user`\n' +
                     '  ADD PRIMARY KEY (`uid`);');
                 await query('ALTER TABLE `user`\n' +

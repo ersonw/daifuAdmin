@@ -120,7 +120,9 @@ router.post('/update', async (req,res) =>{
                 if (status === 2){
                     const uid = await query(`SELECT * FROM \`user\` WHERE \`uid\`='${orders[0].uid}'`);
                     if (uid[0]){
-                        const amount = parseInt(uid[0].amount) + parseInt(orders[0].amount);
+                        const sysFee = (await query(`SELECT * FROM \`system\` WHERE \`key\`='fee' and \`status\`=1`))[0].value;
+                        const fee = uid[0].fee ? uid[0].fee : sysFee;
+                        const amount = parseInt(uid[0].amount) +( parseInt(orders[0].amount) * parseFloat(fee));
                         await query(`UPDATE \`user\` SET \`amount\`='${amount}' where \`uid\`='${orders[0].uid}'`);
                         await TeleApi.editOrders(id ,`订单已完成!`,remark);
                     }
@@ -284,7 +286,7 @@ router.get('/users/list', async (req,res) =>{
     res.send({code: 50000, message: 'Permission denied!'});
 });
 router.post('/users/update', async (req,res) => {
-    let { uid, status, amount, usdt_addr } = req.body;
+    let { uid, status, amount, usdt_addr, usdt2rmb, fee } = req.body;
     const {token} = req.headers;
     const user = await instSession.getUserBySid(token);
     if (user){
@@ -293,11 +295,17 @@ router.post('/users/update', async (req,res) => {
             if (status !== null && status !== undefined && status !== ''){
                 await query(`UPDATE \`user\` SET \`status\`='${status}' WHERE \`uid\`='${uid}'`);
             }
-            if (amount !== null && amount !== undefined && amount !== ''){
+            if (amount && amount !== users[0].amount){
                 await query(`UPDATE \`user\` SET \`amount\`='${amount}' WHERE \`uid\`='${uid}'`);
             }
-            if (usdt_addr !== null && usdt_addr !== undefined && usdt_addr !== ''){
+            if (usdt_addr && usdt_addr !== users[0].usdt_addr){
                 await query(`UPDATE \`user\` SET \`usdt_addr\`='${usdt_addr}' WHERE \`uid\`='${uid}'`);
+            }
+            if (fee && fee !== users[0].fee){
+                await query(`UPDATE \`user\` SET \`fee\`='${parseFloat(fee)}' WHERE \`uid\`='${uid}'`);
+            }
+            if (usdt2rmb && usdt2rmb !== users[0].usdt2rmb){
+                await query(`UPDATE \`user\` SET \`usdt2rmb\`='${parseFloat(usdt2rmb)}' WHERE \`uid\`='${uid}'`);
             }
             return res.send({code: 20000});
         }
@@ -345,7 +353,7 @@ router.post('/config/update', async (req,res) =>{
     if (user && id){
         const config = await query(`SELECT * FROM \`system\` WHERE \`id\`='${id}'`);
         if (config[0]){
-            if (id ===3 ){
+            if (config[0].name === 'robot'){
                 if (value !== config[0].value || status !== config[0].status){
                     TeleApi.run();
                 }
@@ -432,7 +440,7 @@ router.get('/out/list',async (req,res) => {
     usdt2rmb = usdt2rmb ? parseFloat(usdt2rmb) : 1;
     for await (const v of search){
         var t = v;
-        v.usdt = ((parseInt(v.amount) / 100) / usdt2rmb).toFixed(2);
+        v.usdt = (Math.floor((parseInt(v.amount) / 100) / usdt2rmb)).toFixed(2);
         item.push(t);
     }
     return res.send({
@@ -490,5 +498,70 @@ router.post('/out/delete',async (req,res) =>{
         }
         return res.send({code: 20000});
     }
+});
+
+router.get('/contact/list', async (req,res) =>{
+    let { page, limit } = req.query;
+    if (!page || page < 1){
+        page = 1;
+    }
+    if (!limit || limit < 20){
+        limit = 20;
+    }
+    const offset = (page -1) * limit;
+    const item = await query(`SELECT * FROM \`contact\` ORDER BY \`id\` DESC LIMIT ${offset},${limit}`);
+    const count = await query(`SELECT COUNT(*) AS count FROM \`contact\` WHERE 1`);
+    res.send({
+        code: 20000,
+        data: {
+            items: item,
+            total: count
+        }
+    });
+});
+router.post('/contact/update',async (req,res) => {
+    let { id, name, link, type } = req.body;
+    const dbs = await query(`SELECT * FROM \`contact\` WHERE \`id\`='${id}'`);
+    if (dbs[0]){
+        if (name && name !== dbs[0].name){
+            await query(`UPDATE \`contact\` SET \`name\`='${name}' WHERE \`id\`='${id}'`);
+        }
+        if (link && link !== dbs[0].link){
+            await query(`UPDATE \`contact\` SET \`link\`='${link}' WHERE \`id\`='${id}'`);
+        }
+        if (type && type !== dbs[0].type){
+            await query(`UPDATE \`contact\` SET \`type\`='${type}' WHERE \`id\`='${id}'`);
+        }
+        return res.send({code: 20000});
+    }
+    res.send({
+        code: 50000,
+        message: '系统错误！未找到该记录！'
+    });
+});
+router.post('/contact/add',async (req,res) => {
+    let { name, link, type, status } = req.body;
+    const dbs = await query(`SELECT * FROM \`contact\` WHERE \`name\`='${name}' and \`type\`='${type}'`);
+    if (!dbs[0]){
+        if (!link || link.indexOf('http') === -1 ){
+            return res.send({code: 50000, message: '客服链接不可为空！'});
+        }
+        if (!type) {
+            type = 1;
+        }
+        await query(`INSERT INTO \`contact\`(\`name\`, \`link\`, \`type\`, \`ctime\`, \`status\`) 
+                                     VALUES ('${name}', '${link}', '${type}', '${Math.floor(new Date().getTime() / 1000)}', '${status}')`);
+        return res.send({code: 20000});
+    }
+    res.send({code: 50000, message: '同类型的已有一个同名！'});
+});
+router.post('/contact/delete',async (req,res) => {
+    let { id } = req.body;
+    const dbs = await query(`SELECT * FROM \`contact\` WHERE \`id\`='${id}'`);
+    if (dbs[0]){
+        await query(`DELETE FROM \`contact\` WHERE \`id\`='${id}'`);
+        return res.send({code: 20000});
+    }
+    res.send({code: 50000, message: '记录不存在！'});
 });
 module.exports = router;

@@ -49,10 +49,10 @@ class TeleApi{
                         command: 'cha',
                         description: '查账'
                     }),
-                    // new Api.BotCommand({
-                    //     command: 'statistics',
-                    //     description: '统计'
-                    // }),
+                    new Api.BotCommand({
+                        command: 'contact',
+                        description: '联系客服'
+                    }),
                 ]
             }));
             return  result;
@@ -185,6 +185,31 @@ class TeleApi{
         }
         return userDb[0];
     }
+    async authUserByReq(msg){
+        if (msg.message.chat.type !== 'private') return false;
+        const user = msg.message.chat;
+        // bot.deleteMessage(user.id, msg.message_id).catch(() => {});
+        const userDb = await query(`SELECT * FROM \`user\` WHERE \`id\`='${user.id}'`);
+        if (userDb[0] === undefined) {
+            bot.sendMessage(user.id, `未绑定身份，暂时无法使用相关功能！`).then(re => {
+                // console.log(re);
+                setTimeout(() => {
+                    bot.deleteMessage(re.chat.id, re.message_id);
+                }, 1000*15);
+            });
+            return false;
+        }
+        if (userDb[0].status === 0) {
+            bot.sendMessage(user.id, `此身份已进入黑名单并且已经禁止使用所有功能`).then(re => {
+                // console.log(re);
+                setTimeout(() => {
+                    bot.deleteMessage(re.chat.id, re.message_id);
+                }, 1000*15);
+            });
+            return false;
+        }
+        return userDb[0];
+    }
     async checkLaiKa(id){
         const start = this.startTime(new Date().getTime());
         const end = this.endTime(new Date().getTime());
@@ -231,9 +256,14 @@ class TeleApi{
         const endDate = Math.floor((new Date(`${today.getFullYear()}-${today.getMonth()+1}-${today.getDate()} 23:59:59`)).getTime() /1000);
         const count = (await query(`select count(*) as count from \`orders\` where \`ctime\` > ${startDate} and \`ctime\` < ${endDate}`))[0].count;
         const oid = this.getOrdersId(count);
+        let fee = (await query(`SELECT * FROM \`system\` WHERE \`key\`='fee' and \`status\`=1`))[0].value;
+        if (user.fee){
+            fee = user.fee;
+        }
+        // fee = 100 - (parseFloat(fee) * 100);
         const id = (await query(`INSERT INTO \`orders\`(\`amount\`, \`bid\`, \`uid\`, \`ctime\`, \`status\`,\`oid\`)
                                  VALUES ('${(amount * 100)}', 0, '${user.uid}','${Math.floor(today.getTime() / 1000)}',0 ,'${oid}')`)).insertId;
-        return bot.sendMessage(user.id, `订单生成成功，订单号为:\n${oid}\n订单金额为：￥${amount.toFixed(2)}\n\n正在申请卡号中.....`, { replyMarkup:  bot.inlineKeyboard([
+        return bot.sendMessage(user.id, `订单生成成功，订单号为:\n${oid}\n订单金额为：￥${amount.toFixed(2)}\n入金手续费为${(100 - (parseFloat(fee) * 100))}个点\n实际到账金额为：￥${(Math.floor(amount * fee)).toFixed(2)}\n\n正在申请卡号中.....`, { replyMarkup:  bot.inlineKeyboard([
                 [
                     bot.inlineButton('取消申请', { callback: 'cancelApplication'})
                 ]])}).then( (re) =>{
@@ -283,6 +313,7 @@ class TeleApi{
         const orders = await this.getOrders(msg);
         if (orders){
             await query(`UPDATE \`orders\` SET \`status\`=4 WHERE \`id\`='${orders.id}'`);
+            this.lisent.delete(msg.chat.id);
             bot.editMessageText({chatId: orders.chatid ,messageId : orders.mid }, `${msg.text}\n\n已被主动取消！`);
         }
     }
@@ -304,22 +335,23 @@ class TeleApi{
                 const amount = parseInt(user.amount) + parseInt(outlook[0].amount);
                 await query(`UPDATE \`user\` SET \`amount\`='${amount}' WHERE \`uid\`='${user.uid}'`);
                 await query(`UPDATE \`outlook\` SET \`status\`=2 WHERE \`id\`='${outlook[0].id}'`);
-                return  bot.editMessageText({chatId: outlook[0].chatid ,messageId : outlook[0].mid }, `${msg.text}\n\n\n已被主动取消，平台余额将返还：￥${(parseInt(outlook[0].amount) /100).toFixed(2)}`).catch(() => {});
+                return  bot.editMessageText({chatId: outlook[0].chatid ,messageId : outlook[0].mid }, `${msg.text}\n\n\n已被主动取消，平台余额将返还：￥${(parseInt(outlook[0].amount) /100).toFixed(2)}`).catch((e) => { return e;});
             }else{
                 await query(`UPDATE \`outlook\` SET \`status\`=1 WHERE \`id\`='${outlook[0].id}'`);
-                return  bot.editMessageText({chatId: outlook[0].chatid ,messageId : outlook[0].mid }, `${msg.text}\n\n\n已确认成功，正在等待系统审核....`).catch(() => {});
+                return  bot.editMessageText({chatId: outlook[0].chatid ,messageId : outlook[0].mid }, `${msg.text}\n\n\n已确认成功，正在等待系统审核....`).catch((e) => { return e;});
             }
         }
     }
     async handlerOthers(req ,user){
         const data = (req.data).split('+');
         switch (data[0]) {
-            case 'lk':
-                await this.creatOrders(parseInt(data[1]) ,user);
-                bot.deleteMessage(req.message.chat.id, req.message.message_id);
-                break;
             case 'xf':
-                bot.deleteMessage(req.message.chat.id, req.message.message_id);
+                await this.handlerXiaFa(`/xf ${data[1]}`, user);
+                bot.deleteMessage(req.message.chat.id ,req.message.message_id).catch(() => {});
+                break;
+            case 'lk':
+                await this.handlerLaiKa(`/lk ${data[1]}`, user);
+                bot.deleteMessage(req.message.chat.id ,req.message.message_id).catch(() => {});
                 break;
             case 'qrxf':
                 await this.handlerXiaFaOpention(data[1], user, req.message, true);
@@ -329,19 +361,25 @@ class TeleApi{
                 break;
             default:
                 // bot.answerCallbackQuery(req.id,`未知操作！${req.data}`, true);
-                bot.sendMessage(req.message.chat.id, `未知操作！${req.data}`).then(re => {
-                    setTimeout(() => {
-                        bot.deleteMessage(re.chat.id, re.message_id);
-                    }, 1000*15);
-                });
-                bot.deleteMessage(req.message.chat.id, req.message.message_id);
+                // bot.sendMessage(req.message.chat.id, `未知操作！${req.data}`).then(re => {
+                //     setTimeout(() => {
+                //         bot.deleteMessage(re.chat.id, re.message_id);
+                //     }, 1000*15);
+                // });
+                bot.deleteMessage(req.message.chat.id, req.message.message_id).catch(() => {});
                 break;
         }
     }
     async handlerXiaFa(msg, user) {
         const data = ((msg).replace('/xf','')).replace(/(^\s*)|(\s*$)/g, "");
         if (data === ''){
-            bot.sendMessage(user.id, `未指定下发金额\n如下示例：\n\n/xf 10000`).then(re => {
+            bot.sendMessage(user.id, `你的平台余额为:￥${(parseInt(user.amount) / 100).toFixed(2)}\n自定义下发金额￥50000以上\n如下示例：\n\n/xf 50000`, { replyMarkup: bot.inlineKeyboard([[
+                    bot.inlineButton(`￥10000`, { callback: `xf+10000`}),
+                    bot.inlineButton(`￥50000`, { callback: `xf+50000`})
+                ],[
+                    bot.inlineButton('全部下发',{ callback: `xf+${Math.floor(parseInt(user.amount) / 100)}`})
+                ]
+                ])}).then(re => {
                 // console.log(re);
                 setTimeout(() => {
                     bot.deleteMessage(re.chat.id, re.message_id);
@@ -357,7 +395,7 @@ class TeleApi{
                 return false;
             }
             if (parseInt(user.amount) < (parseInt(data) * 100)){
-                bot.sendMessage(user.id, `您的余额将剩余：￥${(parseInt(user.amount) / 100).toFixed(2)}\n\n\n\n对不起，您目前的余额不足以下发！`).then(re => {
+                bot.sendMessage(user.id, `您的余额将剩余：￥${(parseInt(user.amount) / 100).toFixed(2)}\n你要下发的金额：￥${(parseInt(data)).toFixed(2)}\n\n\n对不起，您目前的余额不足以下发！`).then(re => {
                     setTimeout(() => {
                         bot.deleteMessage(re.chat.id, re.message_id);
                     }, 1000*15);
@@ -366,11 +404,14 @@ class TeleApi{
             }else{
                 let usdt2rmb = (await query(`SELECT * FROM \`system\` WHERE \`key\`='usdt2rmb' and \`status\` = 1`))[0].value;
                 usdt2rmb = usdt2rmb ? parseFloat(usdt2rmb) : 1;
+                if (user.usdt2rmb){
+                    usdt2rmb = user.usdt2rmb
+                }
                 const amount = parseInt(user.amount) - (parseInt(data) * 100);
                 const id = (await query(`INSERT INTO \`outlook\`(\`amount\`, \`ctime\`, \`status\`, \`uid\`) 
                            VALUES ('${parseInt(data) * 100 }', '${Math.floor((new Date().getTime()) / 1000)}', 0, '${user.uid}')`)).insertId;
                 await query(`UPDATE \`user\` SET \`amount\`='${amount}' WHERE \`uid\`='${user.uid}'`);
-                return bot.sendMessage(user.id, `您的余额：￥${(amount / 100).toFixed(2)}\n平台USDT汇率为 1USDT= ￥${usdt2rmb.toFixed(2)}\n\n本次下发金额：￥${parseInt(data)}\n兑换的USDT大约：${(parseInt(data) / usdt2rmb).toFixed(2)}\n\n具体到账数量由管理员最终解释！` , { replyMarkup: bot.inlineKeyboard([
+                return bot.sendMessage(user.id, `您的余额：￥${(amount / 100).toFixed(2)}\n平台USDT汇率为 1U= ￥${usdt2rmb.toFixed(2)}\n\n本次下发金额：￥${parseInt(data)}\n兑换的USDT：${Math.floor(parseInt(data) / usdt2rmb)}\n\n具体到账数量由管理员最终解释！` , { replyMarkup: bot.inlineKeyboard([
                         [
                             bot.inlineButton(`确认下发`, { callback: `qrxf+${id}`}),
                             bot.inlineButton(`取消下发`, { callback: `qxxf+${id}`})
@@ -381,12 +422,46 @@ class TeleApi{
             }
         }
     }
+    async getContact(msg, user) {
+        const button = [];
+        let link = [];
+        const contact = await query(`SELECT * FROM \`contact\` WHERE \`status\` = 1`);
+        const sys = await query(`SELECT * FROM \`system\` WHERE \`key\`='tgname' AND status = 1`);
+        for await(const v of contact){
+            if (v.type === 1){
+                link.push(`<a href="${v.link}" >${v.name}</a>`);
+            }
+            if (v.type === 2){
+                button.push( [ bot.inlineButton(v.name, { url: v.link }) ]);
+            }
+            if (v.type === 3){
+                const t = (v.name).split('|');
+                const l = (v.link).split('|');
+                button.push( [
+                    bot.inlineButton(t[0], { url: l[0] }) ,
+                    bot.inlineButton(t[1], { url: l[1] })]
+                    );
+            }
+        }
+        // console.log(button)
+        if (button[0] === undefined){
+            for await(const v of sys){
+                button.push([bot.inlineButton(v.name, {url: `https://t.me/${v.value}`})]);
+            }
+        }
+        if (link[0] === undefined){
+            for await(const v of sys){
+                link.push(`<a href="https://t.me/${v.value}" >${v.name}</a>`);
+            }
+        }
+        bot.sendMessage(msg.chat.id, '值班客服：\n\n' + link.join('\n') + '\n\n', { parseMode: 'html', replyMarkup: bot.inlineKeyboard(button)}).catch(e => {return e});
+    }
     async teleBot(){
         bot.on('/start', async (msg) => {
             if (msg.chat.type !== 'private') return;
             const user = msg.from;
-            bot.deleteMessage(user.id, msg.message_id);
-            console.log(msg.text)
+            bot.deleteMessage(user.id, msg.message_id).catch(() => {});
+            // console.log(msg.text)
             let userId = '';
             const userDb = await query(`SELECT * FROM \`user\` WHERE \`id\`='${user.id}'`);
             const utime = Math.floor(Date.now() / 1000);
@@ -426,25 +501,48 @@ class TeleApi{
             }
             bot.deleteMessage(msg.from.id, msg.message_id).catch(() => {});
             return bot.sendMessage(user.id, `您目前平台余额：￥${(user.amount / 100).toFixed(2)}\n\n\n\n请选择以下快捷操作!`, { replyMarkup: bot.inlineKeyboard([
-                    [bot.inlineButton('充值', { callback: `laika`}),
-                    bot.inlineButton('下发', { callback: `xiafa`})]
+                    [bot.inlineButton('充值', { callback: `/lk`}),
+                    bot.inlineButton('下发', { callback: `/xf`})]
                 ])});
         });
         bot.on('/lk', async (msg) => {
-            const user = await this.authUser(msg);
+            let user = false;
+            let data = '';
+            if (msg.chat){
+                user = await this.authUser(msg);
+                data = msg.text;
+            }else if (msg.message){
+                data = msg.data;
+                user = await this.authUserByReq(msg);
+            }
             if (user === false) {
                 return user;
             }
             bot.deleteMessage(msg.from.id, msg.message_id).catch(() => {});
-            await this.handlerLaiKa(msg.text ,user);
+            await this.handlerLaiKa(data ,user);
         });
         bot.on('/xf',async (msg) => {
-            const user = await this.authUser(msg);
+            let user = false;
+            let data = '';
+            if (msg.chat){
+                user = await this.authUser(msg);
+                data = msg.text;
+            }else if (msg.message){
+                data = msg.data;
+                user = await this.authUserByReq(msg);
+            }
             if (user === false) {
                 return user;
             }
             bot.deleteMessage(msg.from.id, msg.message_id).catch(() => {});
-            await this.handlerXiaFa(msg.text, user);
+            await this.handlerXiaFa(data, user);
+        });
+        bot.on('/contact', async (msg) => {
+            const user = await this.authUser(msg);
+            if (user === false) {
+                return user;
+            }
+            await this.getContact(msg, user);
         });
         bot.on('*', async (msg) => {
             const user = await this.authUser(msg);
@@ -455,7 +553,7 @@ class TeleApi{
         });
         bot.on('callbackQuery', async (req) =>{
             // console.log(req);return
-            const user = await this.authUser(req.message);
+            const user = await this.authUserByReq(req);
             if (user === false) {
                 return user;
             }
@@ -465,14 +563,6 @@ class TeleApi{
                     break;
                 case 'cancelApplication':
                     await this.handlerCancelApplication(req.message);
-                    break;
-                case 'laika':
-                    bot.deleteMessage(req.message.chat.id, req.message.message_id);
-                    await this.handlerLaiKa(`/lk `, user);
-                    break;
-                case 'xiafa':
-                    bot.deleteMessage(req.message.chat.id, req.message.message_id);
-                    await this.handlerXiaFa(`/xf `, user);
                     break;
                 default:
                     await this.handlerOthers(req ,user);
@@ -524,7 +614,10 @@ class TeleApi{
         try {
             client = new TelegramClient(new StringSession(''),
                 apiId, apiHash, {connectionRetries: 5});
-            bot = new TeleBot(botAuthToken);
+            bot = new TeleBot({
+                token: botAuthToken,
+                usePlugins: ['commandButton']
+            });
             if(await this.setBotCommands()){
                 await this.teleBot();
             }

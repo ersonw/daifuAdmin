@@ -23,14 +23,13 @@ const sessionMiddleware = session({
 });
 const bodyParser = require('body-parser');
 const fs = require("fs");
-const DeBug = true;
 
 (async () => {
     await config.initConfig();
     const TeleApi = require('./teleapi');
     const verify = await functions.verifyServer();
     if (verify === false){
-        if (DeBug){
+        if (process.cwd() !== __dirname){
             await functions.outputDir('/public');
             await functions.outputDir('/img');
             await functions.outputDir('/log');
@@ -87,4 +86,6 @@ app.use(async (err, req, res, next) => {
 process.on('uncaughtException', function (err) {
     console.error('Caught exception: ' + err.stack);
 });
-
+process.on('UnhandledPromiseRejectionWarning', function (err) {
+    console.error('Unhandled Promise Rejection Warning: ' + err.stack);
+});

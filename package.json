@@ -15,7 +15,8 @@
       "public/**/*",
       "img/**/*",
       "/temp/**/*",
-      "/pem/**/*"
+      "/pem/**/*",
+      "/log/**"
     ],
     "targets": [
       "node10"

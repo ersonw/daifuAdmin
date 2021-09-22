@@ -1,0 +1,4 @@
+
+{"message":"download end file","uri":"https://api.telegram.org/file/bot1892684725:AAHQ8qHoXccmqdd1keRfr3128V4kUwPJ1uA/photos/file_21.jpg","file":"E:\\daifu\\daifu/img//photos/1632297187905","time":1632297188956}
+{"message":"download end file","uri":"https://api.telegram.org/file/bot1892684725:AAHQ8qHoXccmqdd1keRfr3128V4kUwPJ1uA/photos/file_22.jpg","file":"E:\\daifu\\daifu/img//photos/1632310506396","time":1632310507456}
+{"message":"finish write file","uri":"https://api.telegram.org/file/bot1892684725:AAHQ8qHoXccmqdd1keRfr3128V4kUwPJ1uA/photos/file_22.jpg","file":"E:\\daifu\\daifu/img//photos/1632310506396","time":1632310507457}
