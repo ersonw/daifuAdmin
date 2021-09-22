@@ -196,7 +196,7 @@ router.get('/card/list',async (req,res) => {
         }
         const offset = (page -1) * limit;
         let where = '';
-        if (id !== undefined){
+        if (id){
             if (id.indexOf("K") > -1){
                 where = `WHERE \`bid\`='${id}'`;
             }else if (id.indexOf("Y") > -1){
@@ -283,7 +283,7 @@ router.get('/users/list', async (req,res) =>{
         }
         const offset = (page -1) * limit;
         let where = '';
-        if (id !== undefined && id !== ''){
+        if (id){
             where = `WHERE \`sid\`='${id}'`;
         }
         const count = (await query(`SELECT count(*) as count FROM \`user\` ${where} ORDER BY \`id\` DESC `))[0].count;
