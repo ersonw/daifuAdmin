@@ -400,13 +400,6 @@ router.post('/config/add', async (req,res) =>{
 
 router.get('/out/list',async (req,res) => {
     let { page, limit, id, status, date } = req.query;
-    if (date === undefined){
-        date = new Date();
-    }else {
-        date = new Date(date);
-    }
-    const startDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 00:00:00`)).getTime() /1000);
-    const endDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 23:59:59`)).getTime() /1000);
     if (page === undefined || page < 1){
         page = 1;
     }
@@ -414,15 +407,35 @@ router.get('/out/list',async (req,res) => {
         limit = 20;
     }
     const offset = (page -1) * limit;
+    if (date === undefined){
+        // date = new Date();
+    }else {
+        date = new Date(date);
+    }
+    const startDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 00:00:00`)).getTime() /1000);
+    const endDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 23:59:59`)).getTime() /1000);
+
     let search;
     let count;
     if (id === undefined){
         var sql = '';
         if (status !== undefined){
-            sql = `and \`status\`='${status}' `
+            sql = `\`status\`='${status}' `
         }
-        count = (await query(`SELECT count(*) as count FROM \`outlook\` WHERE \`ctime\` > ${startDate} and \`ctime\` < ${endDate} ${sql}`))[0].count;
-        search = await query(`SELECT * FROM \`outlook\` WHERE \`ctime\` > ${startDate} and \`ctime\` < ${endDate} ${sql} ORDER BY \`id\` DESC LIMIT ${offset}, ${parseInt(limit)}`);
+        if (!date){
+            if (sql){
+                sql = 'where '+sql;
+            }
+            count = (await query(`SELECT count(*) as count FROM \`outlook\` ${sql}`))[0].count;
+            search = await query(`SELECT * FROM \`outlook\` WHERE ${sql} ORDER BY \`id\` DESC LIMIT ${offset}, ${parseInt(limit)}`);
+        }else {
+            if (sql){
+                sql = 'and '+sql;
+            }
+            count = (await query(`SELECT count(*) as count FROM \`outlook\` WHERE \`ctime\` > ${startDate} and \`ctime\` < ${endDate} ${sql}`))[0].count;
+            search = await query(`SELECT * FROM \`outlook\` WHERE \`ctime\` > ${startDate} and \`ctime\` < ${endDate} ${sql} ORDER BY \`id\` DESC LIMIT ${offset}, ${parseInt(limit)}`);
+        }
+
     } else {
         count = 1;
         if (id.indexOf("Y") > -1){
