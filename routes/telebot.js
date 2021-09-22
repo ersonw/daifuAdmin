@@ -407,13 +407,15 @@ router.get('/out/list',async (req,res) => {
         limit = 20;
     }
     const offset = (page -1) * limit;
+    let startDate, endDate;
     if (date === undefined){
         // date = new Date();
     }else {
         date = new Date(date);
+        startDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 00:00:00`)).getTime() /1000);
+        endDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 23:59:59`)).getTime() /1000);
     }
-    const startDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 00:00:00`)).getTime() /1000);
-    const endDate = Math.floor((new Date(`${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()} 23:59:59`)).getTime() /1000);
+
 
     let search;
     let count;
@@ -427,7 +429,7 @@ router.get('/out/list',async (req,res) => {
                 sql = 'where '+sql;
             }
             count = (await query(`SELECT count(*) as count FROM \`outlook\` ${sql}`))[0].count;
-            search = await query(`SELECT * FROM \`outlook\` WHERE ${sql} ORDER BY \`id\` DESC LIMIT ${offset}, ${parseInt(limit)}`);
+            search = await query(`SELECT * FROM \`outlook\` ${sql} ORDER BY \`id\` DESC LIMIT ${offset}, ${parseInt(limit)}`);
         }else {
             if (sql){
                 sql = 'and '+sql;
