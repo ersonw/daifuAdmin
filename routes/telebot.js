@@ -15,7 +15,7 @@ router.get('/list', async (req,res) => {
         limit = 20;
     }
     const offset = (page -1) * limit;
-    if (date === undefined){
+    if (!date){
         // date = new Date();
     }else {
         date = new Date(date);
@@ -421,7 +421,7 @@ router.get('/out/list',async (req,res) => {
     }
     const offset = (page -1) * limit;
     let startDate, endDate;
-    if (date === undefined){
+    if (!date){
         // date = new Date();
     }else {
         date = new Date(date);
