@@ -1,0 +1,589 @@
+const query =require('./dbs');
+const {NewMessage} = require("telegram/events");
+const {Api} = require("telegram");
+const {StringSession} = require("telegram/sessions");
+const {TelegramClient} = require("telegram");
+const TeleBot = require('telebot');
+const  downloadFileAsync  = require('./downloads');
+const input = require('input')
+const {sleep} = require("telegram/Helpers");
+
+const path = __dirname+'/img/';
+const apiId = 7007022;
+const apiHash = '98f324c514d6dff6bc17553c8aa0552b';
+let client;
+let bot;
+let botAuthToken = '';
+
+class TeleApi{
+    constructor() {
+        this.users = new Map();
+        this.action = new Map();
+        this.lisent = new Map();
+        this.application = new Map();
+    }
+    async setBotCommands(){
+        await client.start({
+            botAuthToken
+        });
+        try {
+            const result = await client.invoke(new Api.bots.SetBotCommands({
+                scope: new Api.BotCommandScopeUsers(),
+                langCode: 'zh',
+                commands:[
+                    // new Api.BotCommand({
+                    //     command: 'bind',
+                    //     description: '绑定'
+                    // }),
+                    new Api.BotCommand({
+                        command: 'lk',
+                        description: '来卡'
+                    }),
+                    new Api.BotCommand({
+                        command: 'cha',
+                        description: '查账'
+                    }),
+                    // new Api.BotCommand({
+                    //     command: 'statistics',
+                    //     description: '统计'
+                    // }),
+                ]
+            }));
+            return  result;
+        }catch (e) {
+            console.log(e);
+        }
+    }
+    async handlerEvent(event){
+        console.log(event);
+    }
+    getUserId(uid){
+        let userId = `${uid}`;
+        switch (userId.length) {
+            case 1:
+                userId = `Y000${uid}`
+                break;
+            case 2:
+                userId = `Y00${uid}`
+                break;
+            case 3:
+                userId = `Y0${uid}`
+                break;
+            case 4:
+                userId = `Y${uid}`
+                break;
+        }
+        return userId;
+    }
+    getOrdersId(id){
+        const today = new Date();
+        let oid = `${id + 1}`;
+        let mday = today.getMonth() + 1;
+        if (mday < 10){
+            mday = `0${mday}`;
+        }
+        if (today.getDate() < 10){
+            mday = `${mday}0${today.getDate()}`;
+        }else {
+            mday = `${mday}${today.getDate()}`;
+        }
+        switch (oid.length) {
+            case 1:
+                oid = `${mday}000${oid}`
+                break;
+            case 2:
+                oid = `${mday}00${oid}`
+                break;
+            case 3:
+                oid = `${mday}0${oid}`
+                break;
+            case 4:
+                oid = `${mday}${oid}`
+                break;
+        }
+        return oid;
+    }
+    getBankId(BankId){
+        let bid = `${BankId}`;
+        switch (bid.length) {
+            case 1:
+                bid = `K000${BankId}`
+                break;
+            case 2:
+                bid = `K00${BankId}`
+                break;
+            case 3:
+                bid = `K0${BankId}`
+                break;
+            case 4:
+                bid = `K${BankId}`
+                break;
+        }
+        return bid;
+    }
+    async handlerApp(oid , msg = '',yes = false  , del = false){
+        const app = await query(`SELECT * FROM \`orders\` WHERE \`id\`='${oid}'`);
+        if (app[0]){
+            const user = await query(`SELECT * FROM \`user\` WHERE \`uid\`='${app[0].uid}'`);
+            if (user[0]){
+                this.application.delete(user[0].id);
+            }
+            if (del === false){
+                if (yes === false){
+                    bot.editMessageText({chatId: app[0].chatid ,messageId : app[0].mid }, msg).catch((error) => {return {stat:0 , error : error } ;});
+                }else{
+                    bot.editMessageText({chatId: app[0].chatid ,messageId : app[0].mid }, msg, { parseMode: 'html',replyMarkup: bot.inlineKeyboard([[bot.inlineButton('通知已付款', { callback: 'alreadyPay'})]]) }).catch((error) => {return {stat:0 , error : error } ;});
+                }
+            }else{
+                bot.deleteMessage(app[0].chatid, app[0].mid).catch((error) => {return {stat:0 , error : error } ;});
+            }
+        }
+    }
+    async teleBot(){
+        bot.on('/start', async (msg) => {
+            // console.log(msg)
+            if (msg.chat.type !== 'private') return;
+            const user = msg.from;
+            let userId = '';
+            const userDb = await query(`SELECT * FROM \`user\` WHERE \`id\`='${user.id}'`);
+            const utime = Math.floor(Date.now() / 1000);
+            if (userDb[0] === undefined){
+                const uid = (await query(`INSERT INTO \`user\`(\`id\`, \`first_name\`, \`last_name\`, \`language_code\`, \`status\`, \`ctime\`) 
+                            VALUES ('${user.id}', '${user.first_name}', '${user.last_name}', '${user.language_code}',1,'${utime}')`)).insertId;
+                userId = this.getUserId(uid);
+                // console.log(userId);
+                await query(`UPDATE \`user\` SET \`sid\`='${userId}' WHERE \`uid\`='${uid}'`);
+            }else {
+                userId = userDb[0].sid;
+                if (userDb[0].status === 0) {
+                    bot.deleteMessage(user.id, msg.message_id);
+                    return bot.sendMessage(user.id, `您的身份识别代码为：${userId}\n此身份已进入黑名单并且已经禁止使用所有功能`).then(re => {
+                        // console.log(re);
+                        setTimeout(() => {
+                            bot.deleteMessage(re.chat.id, re.message_id);
+                        }, 1000*15);
+                    });
+                }
+            }
+            bot.deleteMessage(user.id, msg.message_id);
+            return bot.sendMessage(msg.from.id, `欢迎使用代付自助系统，\n您的身份识别代码为：${userId}\n请记住您的识别代码！`).then(re => {
+                // console.log(re);
+                setTimeout(() => {
+                    // bot.deleteMessage(re.chat.id, re.message_id);
+                }, 1000*15);
+            });
+        });
+        bot.on('/bind', async (msg) => {
+            if (msg.chat.type !== 'private') return;
+            const user = msg.from;
+            const userDb = await query(`SELECT * FROM \`user\` WHERE \`id\`='${user.id}'`);
+            if (userDb[0] === undefined) {
+                bot.deleteMessage(user.id, msg.message_id);
+                return bot.sendMessage(user.id, `未绑定身份，暂时无法使用相关功能！`).then(re => {
+                    // console.log(re);
+                    setTimeout(() => {
+                        bot.deleteMessage(re.chat.id, re.message_id);
+                    }, 1000*15);
+                });
+            }
+            if (userDb[0].status === 0) {
+                bot.deleteMessage(user.id, req.message.message_id);
+                return bot.sendMessage(user.id, `此身份已进入黑名单并且已经禁止使用所有功能`).then(re => {
+                    // console.log(re);
+                    setTimeout(() => {
+                        bot.deleteMessage(re.chat.id, re.message_id);
+                    }, 1000*15);
+                });
+            }
+            const markup = bot.inlineKeyboard([
+                [bot.inlineButton('绑定一道卡', { callback: 'bindOnce'})],
+                [bot.inlineButton('管理我的卡', { callback: 'management'})]
+            ]);
+            bot.deleteMessage(user.id, msg.message_id);
+            if (this.action.has(user.id) === undefined){
+                return bot.sendMessage(msg.from.id, `未执行完上一个步骤`).then(re => {
+                    // console.log(re);
+                    setTimeout(() => {
+                        bot.deleteMessage(re.chat.id, re.message_id);
+                    }, 1000*5);
+                });
+            }else{
+                return bot.sendMessage(msg.from.id, `你好, ${ userDb[0].sid }!\n 欢迎使用绑定功能，请选择下列操作选项`, {replyMarkup: markup,parseMode: 'html'});
+            }
+
+
+        });
+        bot.on('/lk', async (msg) => {
+            if (msg.chat.type !== 'private') return;
+            const user = msg.from;
+            const userDb = await query(`SELECT * FROM \`user\` WHERE \`id\`='${user.id}'`);
+            if (userDb[0] === undefined) {
+                bot.deleteMessage(user.id, msg.message_id);
+                return bot.sendMessage(user.id, `未绑定身份，暂时无法使用相关功能！`).then(re => {
+                    // console.log(re);
+                    setTimeout(() => {
+                        bot.deleteMessage(re.chat.id, re.message_id);
+                    }, 1000*15);
+                });
+            }
+            if (userDb[0].status === 0) {
+                bot.deleteMessage(user.id, msg.message_id);
+                return bot.sendMessage(user.id, `此身份已进入黑名单并且已经禁止使用所有功能`).then(re => {
+                    // console.log(re);
+                    setTimeout(() => {
+                        bot.deleteMessage(re.chat.id, re.message_id);
+                    }, 1000*15);
+                });
+            }
+            bot.deleteMessage(user.id, msg.message_id);
+            // if (this.application.has(user.id)){
+            //     const app = this.application.get(user.id);
+            //     return bot.sendMessage(user.id, `上一个(${app.oid})申请尚未完成哦！请先完成上个申请...`).then(re => {
+            //         // console.log(re);
+            //         setTimeout(() => {
+            //             bot.deleteMessage(re.chat.id, re.message_id);
+            //         }, 1000*15);
+            //     });
+            // }
+            const today = new Date();
+            // const data = (((msg.text).replace('/lk','')).replace(/(^\s*)|(\s*$)/g, "")).split('+');
+            const data = ((msg.text).replace('/lk','')).replace(/(^\s*)|(\s*$)/g, "");
+            if (data === ''){
+                return bot.sendMessage(user.id, `请按以下示例进行发送：\n/lk 金额\n/lk 30000`).then(re => {
+                    setTimeout(() => {
+                        bot.deleteMessage(re.chat.id, re.message_id);
+                    }, 1000*60*15);
+                });
+
+            } else {
+                const amount = parseInt(data) * 100;
+                const startDate = Math.floor((new Date(`${today.getFullYear()}-${today.getMonth()+1}-${today.getDate()} 00:00:00`)).getTime() /1000);
+                const endDate = Math.floor((new Date(`${today.getFullYear()}-${today.getMonth()+1}-${today.getDate()} 23:59:59`)).getTime() /1000);
+                const count = (await query(`select count(*) as count from \`orders\` where \`ctime\` > ${startDate} and \`ctime\` < ${endDate}`))[0].count;
+                const oid = this.getOrdersId(count);
+                const id = (await query(`INSERT INTO \`orders\`(\`amount\`, \`bid\`, \`uid\`, \`ctime\`, \`status\`,\`oid\`)
+                                 VALUES ('${amount}', 0, '${userDb[0].uid}','${Math.floor(today.getTime() / 1000)}',0 ,'${oid}')`)).insertId;
+                return bot.sendMessage(user.id, `订单生成成功，订单号为:\n${oid}\n订单金额为：${amount / 100}\n正在申请卡号中.....`, { replyMarkup:  bot.inlineKeyboard([
+                        [
+                            bot.inlineButton('取消申请', { callback: 'cancelApplication'})
+                ]])}).then( (re) =>{
+                    this.application.set(user.id, { oid: oid,messageId: re.message_id , chatId: re.chat.id ,db:userDb[0]});
+                    query(`UPDATE \`orders\` SET \`mid\`='${re.message_id}',\`chatid\`='${re.chat.id}' WHERE \`id\`='${id}'`);
+                });
+            }
+
+        });
+        bot.on('*', async (msg) => {
+            // console.log(msg);
+            if (msg.chat.type !== 'private') return;
+            const user = msg.from;
+            if (msg.photo === undefined) return;
+            const files = msg.photo;
+            if (this.lisent.has(user.id)){
+                const req = this.lisent.get(user.id);
+                switch (req.data) {
+                    case 'alreadyPay':
+                        const orders = await query(`SELECT * FROM \`orders\` WHERE \`mid\`='${req.message.message_id}' AND \`chatid\`='${req.from.id}'`);
+                        if (orders[0]){
+                            const file = await bot.getFile(files[files.length-1].file_id);
+                            await downloadFileAsync(file.fileLink, path+`/photos/${file.file_id}`);
+                            await query(`UPDATE \`orders\` SET \`img\`='/photos/${file.file_id}', \`status\`=5 WHERE \`id\`='${orders[0].id}'`);
+                        }
+                        break;
+                }
+                this.lisent.delete(user.id);
+            }
+            bot.deleteMessage(msg.chat.id, msg.message_id);
+        });
+        bot.on('callbackQuery', async (req) =>{
+            // console.log(query);
+            const user = req.from;
+            const userDb = await query(`SELECT * FROM \`user\` WHERE \`id\`='${user.id}'`);
+            if (userDb[0] === undefined) {
+                bot.deleteMessage(user.id, req.message.message_id);
+                return bot.answerCallbackQuery(req.id, `未绑定身份，暂时无法使用相关功能！`);
+            }
+            if (userDb[0].status === 0) {
+                bot.deleteMessage(user.id, req.message.message_id);
+                return bot.answerCallbackQuery(req.id, `此身份已进入黑名单并且已经禁止使用所有功能`);
+            }
+            this.users.set(user.id, user);
+            const utime = Math.floor(Date.now() / 1000);//时间戳
+            switch (req.data) {
+                case 'alreadyPay':
+                    if (this.lisent.has(user.id)) return ;
+                    this.lisent.set(user.id, req);
+                    bot.sendMessage(user.id, `请把转账截图发给我`).then(re => {
+                        // console.log(re);
+                        setTimeout(() => {
+                            bot.deleteMessage(re.chat.id, re.message_id);
+                        }, 1000*15);
+                    });
+                    break;
+                case 'bindOnce':
+                    const data = {
+                        action: req.data,
+                        data: {},
+                        back:{
+                            text: req.message.text,
+                            reply_markup: req.message.reply_markup
+                        }
+                    }
+                    this.action.set(user.id, data);
+                    bot.editMessageText({chatId: req.message.chat.id ,messageId : req.message.message_id}, '请务必完善以下信息!', {parseMode: 'html', replyMarkup: await this.bindOnce()});
+                    break;
+                case 'bindId'  :
+                    break;
+                case 'cancel'  :
+                    if (this.action.has(user.id)){
+                        const back = this.action.get(user.id);
+                        bot.editMessageText({chatId: req.message.chat.id ,messageId : req.message.message_id}, back.back.text, {parseMode: 'html', replyMarkup: back.back.reply_markup });
+                        this.action.delete(user.id);
+                    }else {
+                        bot.deleteMessage(user.id, req.message.message_id);
+                    }
+                    break;
+                case 'confirm'  :
+                    if (this.action.has(user.id)){
+                        var action = this.action.get(user.id);
+                        if (action.data.BankOpen === undefined){
+                            return bot.answerCallbackQuery(req.id, {
+                                text: '开户行信息未填写',
+                                showAlert: true
+                            });
+                        }
+                        if (action.data.BankUser === undefined){
+                            return bot.answerCallbackQuery(req.id, {
+                                text: '卡主姓名未填写',
+                                showAlert: true
+                            });
+                        }
+                        if (action.data.BankNumber === undefined){
+                            return bot.answerCallbackQuery(req.id, {
+                                text: '银行卡号未填写',
+                                showAlert: true
+                            });
+                        }
+                        if (action.data.BankName === undefined){
+                            return  bot.answerCallbackQuery(req.id, {
+                                text: '银行名称未填写',
+                                showAlert: true
+                            });
+                        }
+                        const banks = await query(`SELECT * FROM \`banks\` WHERE \`BankNumber\`='${action.data.BankNumber}'`);
+                        if (banks[0]){
+                            return  bot.sendMessage(user.id, `以下信息与数据库中冲突，录入失败：\n银行卡号：${action.data.BankNumber}\n`).then(re => {
+                                // console.log(re);
+                                setTimeout(() => {
+                                    bot.deleteMessage(re.chat.id, re.message_id);
+                                }, 1000*15);
+                            });
+                        }
+                        bot.sendMessage(user.id, `以下信息将被录入:\n\n卡主姓名：${action.data.BankUser}\n银行名称:${action.data.BankName}\n银行卡号：${action.data.BankNumber}\n开户行信息：${action.data.BankOpen}\n`).then(re => {
+                            // console.log(re);
+                            setTimeout(() => {
+                                bot.deleteMessage(re.chat.id, re.message_id);
+                            }, 1000*15);
+                        });
+                        const BankId = (await query(`INSERT INTO \`banks\`(\`BankUser\`, \`BankName\`, \`BankNumber\`, \`BankOpen\`, \`ctime\`, \`uid\`)
+                                    VALUES ('${action.data.BankUser}', '${action.data.BankName}', '${action.data.BankNumber}', '${action.data.BankOpen}', '${utime}', '${userDb[0].uid}')`)).insertId;
+                        const bid = this.getBankId(BankId);
+                        await query(`UPDATE \`banks\` SET \`bid\`='${bid}' WHERE \`id\`='${BankId}'`);
+                        bot.sendMessage(user.id, `信息录入成功，录入编号为：${bid}\n此消息15秒后自动删除`).then(re => {
+                            // console.log(re);
+                            setTimeout(() => {
+                                bot.deleteMessage(re.chat.id, re.message_id);
+                            }, 1000*15);
+                        });
+                        this.action.delete(user.id);
+                    }
+                    bot.deleteMessage(user.id, req.message.message_id);
+                    break;
+                case 'setBankUser':
+                    var action = this.action.get(user.id);
+                    if (action !== undefined){
+                        if (this.lisent.has(user.id)) return ;
+                        this.lisent.set(user.id, req.data);
+                        bot.sendMessage(user.id, `请把卡主姓名发给我`).then(re => {
+                            // console.log(re);
+                            setTimeout(() => {
+                                bot.deleteMessage(re.chat.id, re.message_id);
+                            }, 1000*5);
+                        });
+                    }else {
+                        bot.deleteMessage(user.id, req.message.message_id);
+                    }
+                    break;
+                case 'setBankName':
+                    var action = this.action.get(user.id);
+                    if (action !== undefined){
+                        if (this.lisent.has(user.id)) return ;
+                        this.lisent.set(user.id, req.data);
+                        bot.sendMessage(user.id, `请把银行名字发给我`).then(re => {
+                            // console.log(re);
+                            setTimeout(() => {
+                                bot.deleteMessage(re.chat.id, re.message_id);
+                            }, 1000*5);
+                        });
+                    }else {
+                        bot.deleteMessage(user.id, req.message.message_id);
+                    }
+                    break;
+                case 'setBankOpen':
+                    var action = this.action.get(user.id);
+                    if (action !== undefined){
+                        if (this.lisent.has(user.id)) return ;
+                        this.lisent.set(user.id, req.data);
+                        bot.sendMessage(user.id, `请把开户行信息发给我`).then(re => {
+                            // console.log(re);
+                            setTimeout(() => {
+                                bot.deleteMessage(re.chat.id, re.message_id);
+                            }, 1000*5);
+                        });
+                    }else {
+                        bot.deleteMessage(user.id, req.message.message_id);
+                    }
+                    break;
+                case 'setBankNumber':
+                    var action = this.action.get(user.id);
+                    if (action !== undefined){
+                        if (this.lisent.has(user.id)) return ;
+                        this.lisent.set(user.id, req.data);
+                        bot.sendMessage(user.id, `请把银行卡号发给我`).then(re => {
+                            // console.log(re);
+                            setTimeout(() => {
+                                bot.deleteMessage(re.chat.id, re.message_id);
+                            }, 1000*5);
+                        });
+                    }else {
+                        bot.deleteMessage(user.id, req.message.message_id);
+                    }
+                    break;
+                case 'management':
+                    const Markup = [];
+                    const mdata = {
+                        action: req.data,
+                        data: {},
+                        back:{
+                            text: req.message.text,
+                            reply_markup: req.message.reply_markup
+                        }
+                    }
+                    this.action.set(user.id, mdata);
+                    const Banks = await query(`SELECT * FROM \`banks\` WHERE \`uid\`='${userDb[0].id}'`);
+                    for await (const v of Banks){
+                        const t = [];
+                        t.push(bot.inlineButton(`${v.bid}`, { callback: `bank:${v.bid}`}));
+                        Markup.push(t);
+                    }
+                    const te = [];
+                    te.push(bot.inlineButton(`返回上一级`, { callback: `cancel`}));
+                    Markup.push(te);
+                    return  bot.editMessageText({chatId: req.message.chat.id ,messageId : req.message.message_id}, `${userDb[0].sid}绑定的卡如下：`, {parseMode: 'html', replyMarkup: bot.inlineKeyboard(Markup)});
+                case 'cancelApplication':
+                    if (this.application.has(user.id)){
+                        var app = this.application.get(user.id);
+                        await query(`UPDATE \`orders\` SET \`status\`=4 WHERE \`oid\`='${app.oid}'`);
+                        this.application.delete(user.id);
+                    }
+                    bot.deleteMessage(user.id, req.message.message_id);
+                    break;
+                default:
+                    const act = (req.data).split(':');
+                    var msg = '未知消息类型';
+                    switch (act[0]) {
+                        case 'bank':
+                            const bankGet = await query(`SELECT * FROM \`banks\` WHERE \`bid\`='${act[1]}'`);
+                            if (bankGet[0]){
+                                msg = `获取到的信息为：\n\n卡主姓名：${bankGet[0].BankUser}\n银行名称：${bankGet[0].BankName}\n银行卡号：${bankGet[0].BankNumber}\n开户行信息：${bankGet[0].BankOpen}\n`;
+                            }
+                            break;
+                    }
+                    return bot.sendMessage(user.id, `${msg}\n此消息30分钟后自动删除`).then(re => {
+                        // console.log(re);
+                        setTimeout(() => {
+                            bot.deleteMessage(re.chat.id, re.message_id);
+                        }, 1000*60*30);
+                    });
+            }
+        });
+        bot.on('text', (msg) => {
+            const user = msg.from;
+            if (this.lisent.has(user.id) && this.action.has(user.id)){
+                let action = this.action.get(user.id);
+                switch (this.lisent.get(user.id)) {
+                    case 'setBankUser':
+                        action.data.BankUser = msg.text;
+                        break;
+                    case 'setBankName':
+                        action.data.BankName = msg.text;
+                        break;
+                    case 'setBankOpen':
+                        action.data.BankOpen = msg.text;
+                        break;
+                    case 'setBankNumber':
+                        action.data.BankNumber = msg.text;
+                        break;
+                }
+                this.action.set(user.id, action);
+                this.lisent.delete(user.id);
+                bot.deleteMessage(msg.chat.id, msg.message_id);
+            }
+        });
+        bot.start();
+    }
+    async bindOnce(user){
+        return  bot.inlineKeyboard([
+            [
+                bot.inlineButton('设置卡主姓名', { callback: 'setBankUser'}),
+                bot.inlineButton('设置银行名称', { callback: 'setBankName'}),
+            ],
+            [
+                bot.inlineButton('开户行信息', { callback: 'setBankOpen'}),
+                bot.inlineButton('银行卡号', { callback: 'setBankNumber'}),
+            ],
+            [
+                bot.inlineButton('返回', { callback: 'cancel'}),
+                bot.inlineButton('确认', { callback: 'confirm'}),
+            ]
+        ]);
+    }
+    async run(){
+        const system = await query(`SELECT * FROM \`system\` WHERE \`key\`='robot'`);
+        if (system[0] && system[0].status === 1) {
+            botAuthToken = system[0].value;
+
+        }else {
+            console.log(`找不到机器人配置.....`);
+            botAuthToken =  await input.text('bot Token ?');
+        }
+        try {
+            client = new TelegramClient(new StringSession(''),
+                apiId, apiHash, {connectionRetries: 5});
+            bot = new TeleBot(botAuthToken);
+            if(await this.setBotCommands()){
+                await this.teleBot();
+            }
+        }catch (e) {
+
+            if (e.errorMessage === 'ACCESS_TOKEN_EXPIRED' ) {
+                await sleep(1000);
+                botAuthToken = '';
+                if (system[0]){
+                    await query(`DELETE FROM \`system\` WHERE \`id\`='${system[0].id}'`);
+                }
+                console.log(`机器人token失效或者错误!`);
+                return this.run();
+            } else {
+                console.log(e);
+            }
+        }
+        if (system[0] === undefined){
+            await query(`INSERT INTO \`system\`(\`key\`, \`value\`, \`status\`) VALUES ('robot','${botAuthToken}',1)`);
+        }
+    }
+}
+
+let instTeleApi = new TeleApi();
+module.exports = instTeleApi;
+

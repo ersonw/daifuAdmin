@@ -1,0 +1,2 @@
+
+{"message":"finish write file","uri":"https://api.telegram.org/file/bot1974490745:AAEplF5PT8VxA7-NKLUNHJvMwDDF9M07cwI/photos/file_28.jpg","file":"E:\\daifu\\daifu/img//photos/1631625069075","time":1631625070316}
