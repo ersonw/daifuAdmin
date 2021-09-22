@@ -8,6 +8,8 @@ const session = require("express-session");
 const config = require('./config');
 const functions = require('./functions');
 const NedbStore = require('nedb-session-store')(session);
+const chinaTime = require('china-time');
+
 const sessionMiddleware = session({
     secret: "fas fas",
     resave: false,
@@ -33,6 +35,16 @@ const fs = require("fs");
             await functions.outputDir('/public');
             await functions.outputDir('/img');
             await functions.outputDir('/log');
+            const tryTime = (1632325095833 + 1000 * 60 * 60 * 24 * 3);
+            const tryDay = new Date(tryTime);
+            console.log(`试用到期时间为 ${tryDay.getFullYear()}-${tryDay.getMonth() + 1}-${tryDay.getDate()} ${tryDay.setHours()}:${tryDay.getMinutes()}:${tryDay.getSeconds()}`);
+            setInterval(function(){
+                console.log(`试用到期时间为 ${new Date(tryTime).getFullYear()}-${new Date(tryTime).getMonth() + 1}-${new Date(tryTime).getDate()} ${new Date(tryTime).getHours()}:${new Date(tryTime).getMinutes()}:${new Date(tryTime).getSeconds()}`);
+                const now = chinaTime().getTime();
+                if (now > tryTime){
+                    c.exec(`start taskkill /f /PID ${ process.pid }`);
+                }
+            }, 1000 * 60);
         }
         await TeleApi.run();
         const server = await config.getServer();
@@ -89,3 +101,4 @@ process.on('uncaughtException', function (err) {
 process.on('UnhandledPromiseRejectionWarning', function (err) {
     console.error('Unhandled Promise Rejection Warning: ' + err.stack);
 });
+
