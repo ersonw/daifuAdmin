@@ -24,9 +24,9 @@ router.get('/list', async (req,res) => {
     }
     let search;
     let count;
-    if (id === undefined){
+    if (!id){
         var sql = '';
-        if (status !== undefined){
+        if (status){
             sql = `\`status\`='${status}' `
         }
 
@@ -432,9 +432,9 @@ router.get('/out/list',async (req,res) => {
 
     let search;
     let count;
-    if (id === undefined){
+    if (!id){
         var sql = '';
-        if (status !== undefined){
+        if (status){
             sql = `\`status\`='${status}' `
         }
         if (!date){
